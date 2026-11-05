@@ -36,7 +36,8 @@ CORS(app, resources={r"/*": {"origins": "*"}})  # Apply to all routes
 # MongoDB connection
 # mongo_uri = os.getenv('MONGODB_URI', 'mongodb://mongodb:27017/digital_agriculture')
 client = MongoClient(app_settings.mongodb_uri)
-db = client.digital_agriculture
+# Use the database named in MONGODB_URI (as the deployed pods do), else digital_agriculture.
+db = client.get_default_database(default='digital_agriculture')
 epsilon = 5
 
 def load_PCA_model():
