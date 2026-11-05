@@ -1,3 +1,5 @@
+import signal
+import sys
 from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
 from pymongo import MongoClient
@@ -158,12 +160,11 @@ def get_username(token):
     """
     Validate a Tapis `token`, and resolve it to a username.
     """
-    headers = {'Content-Type': 'text/html'}
     # call the userinfo endpoint
     url = f"{app_settings.tapis_base_url}/v3/oauth2/userinfo"
     headers = {'X-Tapis-Token': token}
     try:
-        rsp = requests.get(url, headers=headers)
+        rsp = requests.get(url, headers=headers, timeout=30)
         rsp.raise_for_status()
         username = rsp.json()['result']['username']
     except Exception as e:
@@ -173,6 +174,17 @@ def get_username(token):
 @app.route('/api/health', methods=['GET'])
 def health_check():
     return jsonify({"status": "healthy", "service": "farmer-server"})
+
+# ICICLE CI rollout check: must stay outside /api and report the image's BUILD_SHA.
+@app.route('/health', methods=['GET'])
+def build_health():
+    response = jsonify({
+        "status": "ok",
+        "build_sha": os.getenv("BUILD_SHA", "unknown"),
+        "version": os.getenv("BUILD_VERSION", "unknown")
+    })
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.route('/api/get_user_datasets', methods=['GET'])
@@ -291,7 +303,6 @@ def upload_csv():
 def delete_dataset():
     try:
         auth_header = request.headers.get('Authorization')
-        print('auth_header',auth_header)
         if not auth_header or not auth_header.startswith('Bearer '):
             return jsonify({"status": "error", "message": "Invalid token"}), 401
 
@@ -858,7 +869,17 @@ def train_local_model():
         userID = receivedData['userID'] # Get userID from the request.
         metadata = receivedData['metadata'] # Get metadata from the request.
         hyperparameters = receivedData['hyperparameters'] # Get hyperparameters from the request.
-        
+        model_id = receivedData.get('model_id')
+
+        # Only train on another user's data for a model the caller owns, that is
+        # still training, and that lists that user as a collaborator.
+        if not model_id or not ObjectId.is_valid(str(model_id)):
+            return jsonify({"status": "error", "message": "model_id is required"}), 400
+        model_query = {"_id": ObjectId(str(model_id)), "modelOwner": user_id, "status": "Training"}
+        model_info = db['models'].find_one(model_query) or db['models'][user_id].find_one(model_query)
+        if not model_info or str(userID) not in model_info.get('collaborators', []):
+            return jsonify({"status": "error", "message": "Not authorized to train on this user's data"}), 403
+
         document = db['datasets'][str(userID)].find_one({"metadata": {'$in': metadata}})
         
         df = pd.DataFrame(document['data'], columns=document['metadata'])
@@ -1106,10 +1127,7 @@ def predict_eval():
         return jsonify({'message': 'An error occurred while loading datasets', 'error': str(e)}), 500
 
 
-@app.route('/api/test', methods=['GET'])
-def test():
-    
-    return str("Test"), 200
-
 if __name__ == '__main__':
+    # Exit cleanly on SIGTERM: as PID 1 in the pod the default action is to ignore it.
+    signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
     app.run(host=app_settings.host, port=app_settings.port, debug=app_settings.debug)

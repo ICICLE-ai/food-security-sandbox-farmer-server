@@ -1,0 +1,14 @@
+# ICICLE CI/CD config (cicd-templates v2.2.1): https://github.com/ICICLE-ai/cicd-templates/wiki/Quick-start
+# Food Security Sandbox - farmer server (datasets, privacy, local training)
+schema-version: 3
+# Image name AND Tapis pod ID. Must match the pod the platform team provisions.
+service-name: foodsecurityfarmer
+# Becomes the image tag (ghcr.io/icicle-ai/foodsecurityfarmer:<version>). Bump for every deployable build.
+service-version: 1.0.0
+project-name: food-security-sandbox
+service-type: domain
+runtime-type: python
+runtime-version: "3.12.15"
+include-dev-dependencies: false
+build-apt-packages: []
+runtime-apt-packages: []
